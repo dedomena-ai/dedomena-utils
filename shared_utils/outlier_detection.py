@@ -39,7 +39,7 @@ class AdaptiveOutlierDetector:
         if not self._valid:
             return None, None
         
-        if self.col_type not in ("integer", "float"):
+        if not (pd.api.types.is_integer_dtype(self.series) or pd.api.types.is_float_dtype(self.series)):
             return None, None
         
         data = self.series.astype(float)
@@ -301,6 +301,7 @@ class AdaptiveOutlierDetector:
         if not self._valid:
             return {
                 "outliers": [],
+                "idx": [],
                 "total_outliers": 0,
                 "info": self.info
                 }
@@ -390,6 +391,7 @@ class AdaptiveOutlierDetector:
         if not pd.api.types.is_datetime64_any_dtype(self.series):
             return {
                 "outliers": [],
+                "idx": [],
                 "total_outliers": 0,
                 "info": "The series is not of datetime type."
             }
@@ -445,6 +447,7 @@ class AdaptiveOutlierDetector:
         if not self._valid:
             return {
                 "outliers": [],
+                "idx": [],
                 "total_outliers": 0,
                 "info": self.info  
                 }
