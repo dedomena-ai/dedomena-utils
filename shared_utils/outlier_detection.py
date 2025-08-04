@@ -5,18 +5,42 @@ from scipy.stats import skew, kurtosis, median_abs_deviation, gaussian_kde
 pd.set_option('future.no_silent_downcasting', True)
 
 class AdaptiveOutlierDetector:
-    def __init__(self, series, outlier_process = "adaptive", col_type=None, outlier_threshold=0.5):
+    def __init__(self, series, outlier_process = "adaptive", outlier_threshold=0.5):
         self.series = pd.Series(series).dropna()
         self.outlier_process = outlier_process
         self.outlier_threshold = outlier_threshold
         self.info = "Outlier analysis has not been performed."
-        self.col_type = col_type
+        self.col_type = self._infer_col_type()   
         self._valid = self._is_valid()
         self.skewness, self.kurtosis = self._compute_distribution_features()
         self.distribution_classification = self._classify_distribution()
         self.outlier_methods = self._select_outlier_methods()
         self.thresholds = self._get_thresholds()
 
+    def _infer_col_type(self):
+        s = self.series
+
+        if pd.api.types.is_bool_dtype(s):
+            return "boolean"
+        if pd.api.types.is_datetime64_any_dtype(s):
+            return "datetime"
+        
+        if pd.api.types.is_numeric_dtype(s):
+            return "numeric"
+        
+        if pd.api.types.is_categorical_dtype(s):
+            return "category"
+
+        if pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s):
+            unique_ratio = s.nunique() / len(s)
+            avg_len = s.astype(str).map(len).mean()
+            
+            if s.nunique() <= 20 and avg_len < 20:
+                return "category"
+            else:
+                return "text"
+
+        return "other"
 
     def _is_valid(self):
         """Evaluates if it makes sense to apply shape analysis."""
@@ -29,22 +53,15 @@ class AdaptiveOutlierDetector:
             return True
         if pd.api.types.is_integer_dtype(self.series) and self.series.nunique() <= 3:
             self.info = "The series is numeric with few unique values, outlier analysis is not applicable."
-            self.col_type = "category"
             return True
         self.info = "Series is valid for outlier analysis."
         return True
 
     def _compute_distribution_features(self):
-        
-        if not self._valid:
+        if not self._valid or self.col_type != "numeric":
             return None, None
-        
-        if not (pd.api.types.is_integer_dtype(self.series) or pd.api.types.is_float_dtype(self.series)):
-            return None, None
-        
-        data = self.series.astype(float)
-        return np.round(skew(data), 2), np.round(kurtosis(data, fisher=True), 2)
-    
+        return np.round(skew(self.series), 2), np.round(kurtosis(self.series, fisher=True), 2)
+
     def _classify_distribution(self):
         skewness, kurtosis = self.skewness, self.kurtosis
         if skewness is None or kurtosis is None:
@@ -452,7 +469,7 @@ class AdaptiveOutlierDetector:
                 "info": self.info  
                 }
             
-        if self.col_type in {"integer", "float"}:
+        if self.col_type == "numeric":
             final_info = self.detect_numeric_outliers()
         elif self.col_type =="category":
             final_info = self.detect_rare_categories()
