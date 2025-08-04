@@ -1,6 +1,41 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
+from typing import Dict, Any
+import json
+
+def detect_column_types(df):
+    """
+    Detect the data type of each column in the DataFrame.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+
+    Returns:
+        dict: A dictionary mapping column names to their data types.
+    """
+    column_types = {}
+
+    for col in df.columns:
+        dtype = df[col].dtype
+
+        if pd.api.types.is_string_dtype(dtype):
+            column_types[col] = "string"
+        elif pd.api.types.is_integer_dtype(dtype):
+            column_types[col] = "integer"
+        elif pd.api.types.is_float_dtype(dtype):
+            column_types[col] = "float"
+        elif pd.api.types.is_bool_dtype(dtype):
+            column_types[col] = "boolean"
+        elif pd.api.types.is_datetime64_any_dtype(dtype):
+            column_types[col] = "datetime"
+        elif pd.api.types.is_categorical_dtype(dtype):
+            column_types[col] = "category"
+        else:
+            column_types[col] = str(dtype)  # fallback to raw dtype name
+
+    return column_types
+
 
 def cramers_v(cat_series_a: pd.Series, cat_series_b: pd.Series) -> float:
     """Metric that calculates the corrected Cramer's V statistic for categorical-categorical
@@ -88,3 +123,64 @@ def kruskal_wallis_boolean(cat_series: pd.Series, num_series: pd.Series, p_cutof
         return p < p_cutoff # True
     except Exception:
         return False
+
+
+def generate_distribution_summary(serie, bins_amount=15):
+    """
+    Generates a summarized distribution for a pandas series:
+    - If numeric: returns a histogram by bins.
+    - If datetime: returns a histogram by date intervals.
+    - If categorical: returns counts of the 20 most frequent categories.
+    """
+    
+    serie = serie.dropna()
+    if serie.empty:
+        return json.dumps({
+            "histogram": [],
+            "labels": []
+        })
+
+    if pd.api.types.is_numeric_dtype(serie):
+        min_val, max_val = serie.min(), serie.max()
+        if min_val == max_val:
+            return json.dumps({
+                "histogram": [len(serie)],
+                "labels": [f"{min_val}"]
+            })
+        if pd.api.types.is_integer_dtype(serie) and max_val - min_val <= bins_amount:
+            bins = range(min_val, max_val + 2)
+            labels = [str(v) for v in range(min_val, max_val + 1)]
+            hist = serie.value_counts().reindex(range(min_val, max_val + 1), fill_value=0).tolist()
+        else:
+            bins = np.linspace(min_val, max_val, bins_amount + 1)
+            cat = pd.cut(serie, bins=bins, include_lowest=True)
+            hist = cat.value_counts(sort=False).tolist()
+            labels = [f"{round(i.left, 2)} - {round(i.right, 2)}" for i in cat.cat.categories]
+
+    elif pd.api.types.is_datetime64_any_dtype(serie):
+        timestamps = serie.dropna().astype('int64') // 10**9  # convert to seconds
+        if timestamps.nunique() == 1:
+            val = pd.to_datetime(timestamps.iloc[0], unit='s').date()
+            return {"histogram": [len(timestamps)], "labels": [f"{val}"]}
+        hist, bin_edges = np.histogram(timestamps, bins=bins_amount)
+        labels = [
+            f"{pd.to_datetime(bin_edges[i], unit='s').date()} - {pd.to_datetime(bin_edges[i+1], unit='s').date()}"
+            for i in range(len(bin_edges) - 1)
+        ]
+
+
+    else:  # Categorical or any other type
+        str_vals = serie.astype(str)
+        top_values = str_vals.value_counts().head(20)
+        hist = top_values.tolist()
+        labels = top_values.index.tolist()
+    
+    # Filter empty bins
+    hist = np.array(hist)
+    nonzero_mask = hist > 0
+    hist = hist[nonzero_mask].tolist()
+    labels = [label for i, label in enumerate(labels) if nonzero_mask[i]]
+    return json.dumps({
+        "histogram": hist,
+        "labels": labels
+        }, default=str)
