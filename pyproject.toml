@@ -1,0 +1,9 @@
+[project]
+name = "dedomena-utils"
+version = "0.1.0"
+description = "Shared utilities for Dedomena projects"
+authors = [{name = "Salomon", email = "salomon@dedomena.ai"}]
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
