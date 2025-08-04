@@ -1,3 +1,6 @@
+import pandas as pd
+import numpy as np
+from scipy import stats
 
 def cramers_v(cat_series_a: pd.Series, cat_series_b: pd.Series) -> float:
     """Metric that calculates the corrected Cramer's V statistic for categorical-categorical
