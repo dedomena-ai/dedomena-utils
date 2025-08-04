@@ -353,6 +353,7 @@ class AdaptiveOutlierDetector:
         valores = df_filtrado['value'].tolist()
         final_info = {
             "outliers": valores,
+            "idx": df_filtrado.index.tolist(),
             "total_outliers": len(valores),
             "info": self.info
         }
@@ -362,8 +363,11 @@ class AdaptiveOutlierDetector:
         
         freqs = self.series.value_counts(normalize=True, dropna=False)
         rare = freqs[freqs < rare_threshold]
+        outliers = rare.index.tolist()  
+        idx = self.series[self.series.isin(outliers)].index.tolist()
         final_info = {
-            "outliers": rare.index.tolist(),
+            "outliers": outliers,
+            "idx": idx,
             "total_outliers": len(rare),
             "info": self.info
         }
@@ -421,6 +425,7 @@ class AdaptiveOutlierDetector:
 
         return {
             "outliers": self.series.loc[final_outliers.index].tolist(),
+            "idx": final_outliers.index.tolist(),
             "total_outliers": len(final_outliers),
             "info": self.info
         }
@@ -451,7 +456,7 @@ class AdaptiveOutlierDetector:
         elif self.col_type == "datetime":
             final_info = self.detect_datetime_outliers()
         elif self.col_type == "boolean":
-            final_info = {"outliers": [], "total_outliers": 0, "info": "Outlier analysis is not applicable."}
+            final_info = {"outliers": [], "idx": [], "total_outliers": 0, "info": "Outlier analysis is not applicable."}
         else:
             final_info = self.detectar_outliers_texto_por_longitud()
         return final_info
