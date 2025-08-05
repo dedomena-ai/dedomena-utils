@@ -451,7 +451,15 @@ class AdaptiveOutlierSingle:
 
         min_freq = rare.min()
         max_freq = rare.max()
-
+        if pd.isna(min_freq) or pd.isna(max_freq):
+            return {
+                "values": [],
+                "idx": [],
+                "score": [],
+                "total": 0,
+                "info": "No outliers detected."
+            }
+            
         if max_freq > min_freq:
             score = [1 - (freqs[v] - min_freq) / (max_freq - min_freq) for v in outliers]
         else:
