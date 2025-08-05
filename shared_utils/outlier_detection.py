@@ -66,7 +66,9 @@ class AdaptiveOutlierSingle:
 
     def _infer_col_type(self):
         s = self.series
-
+        if s.isna().all():
+            return "empty"
+        
         if pd.api.types.is_bool_dtype(s):
             return "boolean"
 
