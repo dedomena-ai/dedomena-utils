@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import skew, kurtosis, median_abs_deviation, gaussian_kde
 from collections import Counter
+from scipy.special import expit
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -382,6 +383,7 @@ class AdaptiveOutlierSingle:
             return {
                 "values": [],
                 "idx": [],
+                "score": [],
                 "total": 0,
                 "info": self.info
                 }
@@ -431,27 +433,37 @@ class AdaptiveOutlierSingle:
         df_scores['combined_score'] = avg_prob * penalty
         df_scores = df_scores.fillna(0).infer_objects(copy=False)
         df_filtrado = df_scores[df_scores['combined_score'] > self.outlier_threshold]
-        unique_outliers = df_filtrado['value'].unique().tolist()
         final_info = {
-            "values": unique_outliers,
+            "values": df_filtrado['value'].tolist(),
             "idx": df_filtrado.index.tolist(),
+            "score": df_filtrado['combined_score'].tolist(),
             "total": len(df_filtrado),
             "info": self.info
         }
         return final_info
         
     def detect_rare_categories(self, rare_threshold=0.01):
-        
         freqs = self.series.value_counts(normalize=True, dropna=False)
         rare = freqs[freqs < rare_threshold]
-        outliers = rare.index.tolist()  
+        outliers = rare.index.tolist()
         idx = self.series[self.series.isin(outliers)].index.tolist()
+
+        min_freq = rare.min()
+        max_freq = rare.max()
+
+        if max_freq > min_freq:
+            score = [1 - (freqs[v] - min_freq) / (max_freq - min_freq) for v in outliers]
+        else:
+            score = [1.0 for _ in outliers]
+
         final_info = {
             "values": outliers,
             "idx": idx,
-            "total": len(rare),
+            "score": score,
+            "total": len(idx),
             "info": self.info
         }
+        return final_info
         return final_info
         
     def detect_datetime_outliers(
@@ -460,7 +472,7 @@ class AdaptiveOutlierSingle:
         mad_threshold: float = 3.5
         ) -> dict:
         """
-        Detects outliers in a datetime series by combining IQR, MAD, and jump detection.
+        Detects outliers in a datetime series by combining IQR, MAD.
 
         Returns:
             A dictionary with:
@@ -472,43 +484,48 @@ class AdaptiveOutlierSingle:
             return {
                 "values": [],
                 "idx": [],
+                "score": [],
                 "total": 0,
                 "info": "The series is not of datetime type."
             }
 
-        timestamps = self.series.astype("int64")  # nanosegundos
-        index_clean = self.series.index
+        timestamps = self.series.dropna().astype("int64")  # nanoseconds
+        index_clean = timestamps.index
 
+        # -----------------------------
         # IQR
         q1, q3 = np.percentile(timestamps, [25, 75])
         iqr = q3 - q1
         lower, upper = q1 - iqr_multiplier * iqr, q3 + iqr_multiplier * iqr
-        outlier_iqr_partial = (timestamps < lower) | (timestamps > upper)
 
-        outlier_iqr = pd.Series(False, index=self.series.index)
+        iqr_dist = np.zeros_like(timestamps, dtype=float)
+        iqr_dist[timestamps < lower] = (lower - timestamps[timestamps < lower]) / iqr
+        iqr_dist[timestamps > upper] = (timestamps[timestamps > upper] - upper) / iqr
+        iqr_score = expit(iqr_dist)  # map to [0, 1]
 
-        outlier_iqr.loc[index_clean] = outlier_iqr_partial
-        
-
+        # -----------------------------
         # MAD
         median = np.median(timestamps)
         mad = np.median(np.abs(timestamps - median))
-        outlier_mad = pd.Series(False, index=self.series.index)
+        mad_score = np.zeros_like(timestamps, dtype=float)
+
         if mad > 0:
-            modified_z_scores = 0.6745 * (timestamps - median) / mad
-            outlier_mad_partial = np.abs(modified_z_scores) > mad_threshold
-            outlier_mad.loc[index_clean] = outlier_mad_partial
+            modified_z = 0.6745 * (timestamps - median) / mad
+            mad_score = expit(np.abs(modified_z))  # map to [0, 1]
 
-        # Votación
-        votes = pd.Series(0, index=self.series.index, dtype=int)
-        votes[outlier_iqr] += 1
-        votes[outlier_mad] += 1
+        # -----------------------------
+        # Score final ponderado
+        combined_score = 0.5 * iqr_score + 0.5 * mad_score
+        combined_series = pd.Series(combined_score, index=index_clean)
 
-        final_outliers = votes[votes > 0]
-        unique_outliers = self.series.loc[final_outliers.index].dropna().unique().tolist()
+        # Umbral de corte (puedes hacerlo configurable)
+        threshold = 0.7
+        final_outliers = combined_series[combined_series > threshold]
+
         return {
-            "values": unique_outliers,
+            "values": self.series.loc[final_outliers.index].dropna().unique().tolist(),
             "idx": final_outliers.index.tolist(),
+            "score": final_outliers.tolist(),
             "total": len(final_outliers),
             "info": self.info
         }
