@@ -4,7 +4,51 @@ from scipy.stats import skew, kurtosis, median_abs_deviation, gaussian_kde
 
 pd.set_option('future.no_silent_downcasting', True)
 
-class AdaptiveOutlierDetector:
+class AdaptiveOutlier:
+    def __init__(self, data, outlier_process="adaptive", outlier_threshold=0.5):
+        # Normalización del input
+        if isinstance(data, pd.Series):
+            self.df = data.to_frame()
+        elif isinstance(data, list):
+            self.df = pd.DataFrame({"feature": data})
+        elif isinstance(data, pd.DataFrame):
+            self.df = data
+        else:
+            raise TypeError("Se espera un DataFrame, Series o lista.")
+        self.clean_df = self.df.copy()
+        self.outlier_process = outlier_process
+        self.outlier_threshold = outlier_threshold
+        self.commons_idx = []
+        self.results = {}
+
+    def get_common_outlier_indices(self, threshold=3):
+        """
+        Devuelve el conjunto de índices que aparecen como outliers en al menos `threshold` columnas.
+        """
+        all_indices = []
+        for col_data in self.results.values():
+            if col_data["summary"].get("n_outliers") > 0:
+                all_indices.extend(col_data["outliers"]["idx"])
+
+        index_counts = Counter(all_indices)
+        common_indices = [idx for idx, count in index_counts.items() if count >= threshold]
+        return common_indices
+    
+    def run_pipeline(self):
+        for col in self.df.columns:
+            series = self.df[col]
+            ao = AdaptiveOutlierSingle(series, self.outlier_process, self.outlier_threshold)
+            self.results[col] = ao.detect_outliers()
+
+        self.commons_idx = self.get_common_outlier_indices()
+        if self.commons_idx:
+            self.clean_df = self.clean_df.drop(index=self.commons_idx)
+        return self.results
+
+    
+    
+
+class AdaptiveOutlierSingle:
     def __init__(self, series, outlier_process = "adaptive", outlier_threshold=0.5):
         self.series = pd.Series(series).dropna()
         self.outlier_process = outlier_process
@@ -22,19 +66,43 @@ class AdaptiveOutlierDetector:
 
         if pd.api.types.is_bool_dtype(s):
             return "boolean"
+
+        if pd.api.types.is_numeric_dtype(s):
+            unique_ratio = s.nunique() / len(s)
+            if s.nunique() == 1:
+                return "constant"
+            
+            if pd.api.types.is_integer_dtype(s):
+                if unique_ratio < 0.05 or s.nunique() <= 20:
+                    return "category"   
+                else:
+                    return "integer"
+            elif pd.api.types.is_float_dtype(s):
+                if unique_ratio < 0.01 or s.nunique() <= 30:
+                    return "category"
+                else:
+                    return "float"
+            else:
+                return "numeric"
+
         if pd.api.types.is_datetime64_any_dtype(s):
             return "datetime"
-        
-        if pd.api.types.is_numeric_dtype(s):
-            return "numeric"
-        
+
+        try:
+            converted = pd.to_datetime(s, errors="coerce", utc=True)
+            if converted.notna().sum() / len(s) > 0.9:  # al menos 90% parsable
+                self.series = converted.dropna()
+                return "datetime"
+        except Exception:
+            pass
+
         if pd.api.types.is_categorical_dtype(s):
             return "category"
 
         if pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s):
             unique_ratio = s.nunique() / len(s)
             avg_len = s.astype(str).map(len).mean()
-            
+
             if s.nunique() <= 20 and avg_len < 20:
                 return "category"
             else:
@@ -58,21 +126,16 @@ class AdaptiveOutlierDetector:
         return True
 
     def _compute_distribution_features(self):
-        if not self._valid or self.col_type != "numeric":
+        if not self._valid or self.col_type not in ["integer", "float", "numeric"]:
             return None, None
         return np.round(skew(self.series), 2), np.round(kurtosis(self.series, fisher=True), 2)
 
     def _classify_distribution(self):
         skewness, kurtosis = self.skewness, self.kurtosis
-        if skewness is None or kurtosis is None:
+        if skewness is None or kurtosis is None or not self._valid:
             return {
-                'symmetry': 'unknown',
-                'tails': 'unknown'
-            }
-        if not self._valid:
-            return {
-                'symmetry': 'unknown',
-                'tails': 'unknown'
+            'symmetry': 'unknown',
+            'tails': 'unknown'
             }
         
         if skewness < -0.5:
@@ -82,7 +145,6 @@ class AdaptiveOutlierDetector:
         else:
             symmetry = 'symmetric'
         
-        # Curtosis
         if kurtosis > 1:
             tails = 'leptokurtic'       
         elif kurtosis < -1:
@@ -288,7 +350,7 @@ class AdaptiveOutlierDetector:
         Returns:
             pd.DataFrame: Indices and 'score' column with the values considered outliers.
         """
-        series = self.series.dropna()
+        series = self.series
         x = series.values
 
         kde = gaussian_kde(x)
@@ -317,9 +379,9 @@ class AdaptiveOutlierDetector:
         """
         if not self._valid:
             return {
-                "outliers": [],
+                "values": [],
                 "idx": [],
-                "total_outliers": 0,
+                "total": 0,
                 "info": self.info
                 }
         weights = self.outlier_methods.get('weights')
@@ -368,11 +430,11 @@ class AdaptiveOutlierDetector:
         df_scores['combined_score'] = avg_prob * penalty
         df_scores = df_scores.fillna(0).infer_objects(copy=False)
         df_filtrado = df_scores[df_scores['combined_score'] > self.outlier_threshold]
-        valores = df_filtrado['value'].tolist()
+        unique_outliers = df_filtrado['value'].unique().tolist()
         final_info = {
-            "outliers": valores,
+            "values": unique_outliers,
             "idx": df_filtrado.index.tolist(),
-            "total_outliers": len(valores),
+            "total": len(df_filtrado),
             "info": self.info
         }
         return final_info
@@ -384,9 +446,9 @@ class AdaptiveOutlierDetector:
         outliers = rare.index.tolist()  
         idx = self.series[self.series.isin(outliers)].index.tolist()
         final_info = {
-            "outliers": outliers,
+            "values": outliers,
             "idx": idx,
-            "total_outliers": len(rare),
+            "total": len(rare),
             "info": self.info
         }
         return final_info
@@ -401,51 +463,52 @@ class AdaptiveOutlierDetector:
 
         Returns:
             A dictionary with:
-            - outliers: Series with the values and the number of methods that flagged them as outliers
-            - total_outliers: Total number of unique outliers
+            - values: Series with the values and the number of methods that flagged them as outliers
+            - total: Total number of unique outliers
             - info: Contextual information
         """
         if not pd.api.types.is_datetime64_any_dtype(self.series):
             return {
-                "outliers": [],
+                "values": [],
                 "idx": [],
-                "total_outliers": 0,
+                "total": 0,
                 "info": "The series is not of datetime type."
             }
 
-        serie = self.series
-        serie_clean = serie.dropna()
-        timestamps = serie_clean.astype("int64")  # nanosegundos
-        index_clean = serie_clean.index
+        timestamps = self.series.astype("int64")  # nanosegundos
+        index_clean = self.series.index
 
         # IQR
         q1, q3 = np.percentile(timestamps, [25, 75])
         iqr = q3 - q1
         lower, upper = q1 - iqr_multiplier * iqr, q3 + iqr_multiplier * iqr
         outlier_iqr_partial = (timestamps < lower) | (timestamps > upper)
-        outlier_iqr = pd.Series(False, index=serie.index)
+
+        outlier_iqr = pd.Series(False, index=self.series.index)
+
         outlier_iqr.loc[index_clean] = outlier_iqr_partial
+        
 
         # MAD
         median = np.median(timestamps)
         mad = np.median(np.abs(timestamps - median))
-        outlier_mad = pd.Series(False, index=serie.index)
+        outlier_mad = pd.Series(False, index=self.series.index)
         if mad > 0:
             modified_z_scores = 0.6745 * (timestamps - median) / mad
             outlier_mad_partial = np.abs(modified_z_scores) > mad_threshold
             outlier_mad.loc[index_clean] = outlier_mad_partial
 
         # Votación
-        votes = pd.Series(0, index=serie.index, dtype=int)
+        votes = pd.Series(0, index=self.series.index, dtype=int)
         votes[outlier_iqr] += 1
         votes[outlier_mad] += 1
 
         final_outliers = votes[votes > 0]
-
+        unique_outliers = self.series.loc[final_outliers.index].dropna().unique().tolist()
         return {
-            "outliers": self.series.loc[final_outliers.index].tolist(),
+            "values": unique_outliers,
             "idx": final_outliers.index.tolist(),
-            "total_outliers": len(final_outliers),
+            "total": len(final_outliers),
             "info": self.info
         }
         
@@ -461,22 +524,39 @@ class AdaptiveOutlierDetector:
             
     def detect_outliers(self):
         
+        result = {
+            "summary": {
+                "n_outliers": 0,
+                "n_rare": 0,
+                "n_possible": 0
+            },
+            "outliers": {},
+            "rare_categories": {},
+            "possible_outliers": {},
+            "meta": {
+                "col_name": self.series.name,
+                "col_type": self.col_type,
+                "comments": ""}
+        }
         if not self._valid:
-            return {
-                "outliers": [],
-                "idx": [],
-                "total_outliers": 0,
-                "info": self.info  
-                }
+            return result
             
-        if self.col_type == "numeric":
+        if self.col_type in ["integer", "float", "numeric"]:
             final_info = self.detect_numeric_outliers()
+            result["summary"]["n_outliers"] = final_info["total"]
+            result["outliers"] = final_info
         elif self.col_type =="category":
             final_info = self.detect_rare_categories()
+            result["summary"]["n_rare"] = final_info["total"]
+            result["rare_categories"] = final_info
         elif self.col_type == "datetime":
             final_info = self.detect_datetime_outliers()
-        elif self.col_type == "boolean":
-            final_info = {"outliers": [], "idx": [], "total_outliers": 0, "info": "Outlier analysis is not applicable."}
+            result["summary"]["n_possible"] = final_info["total"]
+            result["possible_outliers"] = final_info
+        elif self.col_type in ["boolean", "constant", "other"]:
+            final_info = {"values": [], "idx": [], "total": 0, "info": "Outlier analysis is not applicable."}
         else:
             final_info = self.detectar_outliers_texto_por_longitud()
-        return final_info
+            result["summary"]["n_possible"] = final_info["total"]
+            result["possible_outliers"] = final_info
+        return result
