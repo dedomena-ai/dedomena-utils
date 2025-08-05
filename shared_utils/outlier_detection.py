@@ -39,6 +39,7 @@ class AdaptiveOutlier:
     def run_pipeline(self):
         for col in self.df.columns:
             series = self.df[col]
+            series = series[~series.isna()]
             ao = AdaptiveOutlierSingle(series, self.outlier_process, self.outlier_threshold)
             self.results[col] = ao.detect_outliers()
 
@@ -443,7 +444,7 @@ class AdaptiveOutlierSingle:
         return final_info
         
     def detect_rare_categories(self, rare_threshold=0.01):
-        freqs = self.series.value_counts(normalize=True, dropna=False)
+        freqs = self.series.value_counts(normalize=True, dropna=True)
         rare = freqs[freqs < rare_threshold]
         outliers = rare.index.tolist()
         idx = self.series[self.series.isin(outliers)].index.tolist()
