@@ -342,39 +342,44 @@ class AdaptiveOutlierSingle:
 
         return df_outliers
 
-    def ecod_asymmetric_score_outliers(self,threshold=0.5):
+    def ecod_asymmetric_score_outliers(self, threshold=0.5):
         """
         Detects outliers using ECOD with KDE as the center and ECDF as the score.
-        
-        Args:
-            series (array-like): Numeric series (list, np.array, or pd.Series)
-            threshold (float): Threshold to normalize the scores (default=0.5)
-
-        Returns:
-            pd.DataFrame: Indices and 'score' column with the values considered outliers.
+        Falls back to symmetric ECOD if KDE/ECDF fails.
         """
-        series = self.series
+        series = self.series.dropna()
+        if series.empty:
+            logger.warning("Series is empty. Using symmetric ECOD instead.")
+            return self.ecod_symmetric_score_outliers()
+
         x = series.values
 
-        kde = gaussian_kde(x)
-        xs = np.linspace(np.min(x), np.max(x), 1000)
-        peak = xs[np.argmax(kde(xs))]
+        try:
+            
+            kde = gaussian_kde(x)
+            xs = np.linspace(np.min(x), np.max(x), 1000)
+            peak = xs[np.argmax(kde(xs))]
 
-        sorted_data = np.sort(x)
-        n = len(x)
-        def ecdf_func(v):
-            return np.searchsorted(sorted_data, v, side='right') / n
+            # ECDF
+            sorted_data = np.sort(x)
+            n = len(x)
+            def ecdf_func(v):
+                return np.searchsorted(sorted_data, v, side='right') / n
 
-        raw_scores = 2 * np.abs(np.array([ecdf_func(v) for v in x]) - ecdf_func(peak))
-        norm_scores = np.clip(raw_scores / threshold, 0, 1)
+            raw_scores = 2 * np.abs(np.array([ecdf_func(v) for v in x]) - ecdf_func(peak))
+            norm_scores = np.clip(raw_scores / threshold, 0, 1)
 
-        outlier_mask = norm_scores > 0
-        outliers = series[outlier_mask]
-        scores = norm_scores[outlier_mask]
+            outlier_mask = norm_scores > 0
+            outliers = series[outlier_mask]
+            scores = norm_scores[outlier_mask]
 
-        return pd.DataFrame({
-            'score': scores
-        }, index=outliers.index)
+            return pd.DataFrame({'score': scores}, index=outliers.index)
+
+        except Exception as e:
+            logger.warning(
+                f"ECOD asymmetric scoring failed. Falling back to symmetric ECOD."
+            )
+            return self.ecod_symmetric_score_outliers()
         
     def detect_numeric_outliers(self):
         """
