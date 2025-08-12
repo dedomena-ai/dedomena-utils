@@ -501,9 +501,8 @@ class AdaptiveOutlierSingle:
         """
         if not pd.api.types.is_datetime64_any_dtype(self.series):
             return {
-                "values": [],
                 "idx": [],
-                "score": [],
+                "outliers_score": [],
                 "total": 0,
                 "info": "The series is not of datetime type."
             }
