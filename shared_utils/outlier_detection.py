@@ -25,7 +25,7 @@ class AdaptiveOutlier:
 
     def get_common_outlier_indices(self, threshold=3):
         """
-        Devuelve el conjunto de índices que aparecen como outliers en al menos `threshold` columnas.
+        Returns the set of indices that appear as outliers in at least `threshold` columns.
         """
         all_indices = []
         for col_data in self.results.values():
@@ -48,8 +48,6 @@ class AdaptiveOutlier:
             self.clean_df = self.clean_df.drop(index=self.commons_idx)
         return self.results
 
-    
-    
 
 class AdaptiveOutlierSingle:
     def __init__(self, series, outlier_process = "adaptive", outlier_threshold=0.5):
@@ -95,7 +93,7 @@ class AdaptiveOutlierSingle:
 
         try:
             converted = pd.to_datetime(s, errors="coerce", utc=True)
-            if converted.notna().sum() / len(s) > 0.9:  # al menos 90% parsable
+            if converted.notna().sum() / len(s) > 0.9:  # at least 90% of values should be valid dates
                 self.series = converted.dropna()
                 return "datetime"
         except Exception:
@@ -384,9 +382,8 @@ class AdaptiveOutlierSingle:
         """
         if not self._valid:
             return {
-                "values": [],
                 "idx": [],
-                "score": [],
+                "outliers_score": [],
                 "total": 0,
                 "info": self.info
                 }
@@ -434,12 +431,16 @@ class AdaptiveOutlierSingle:
         # Score final
         avg_prob = numerador / (denominador.replace(0, np.nan))
         df_scores['combined_score'] = avg_prob * penalty
+        df_scores['combined_score'] = df_scores['combined_score'].round(3)
+
         df_scores = df_scores.fillna(0).infer_objects(copy=False)
         df_filtrado = df_scores[df_scores['combined_score'] > self.outlier_threshold]
+        valores_unicos = df_filtrado.drop_duplicates(subset=['value'])[['value', 'combined_score']]
+        valores_dict = dict(zip(valores_unicos['value'], valores_unicos['combined_score']))
+        
         final_info = {
-            "values": df_filtrado['value'].tolist(),
             "idx": df_filtrado.index.tolist(),
-            "score": df_filtrado['combined_score'].tolist(),
+            "outliers_score": valores_dict,
             "total": len(df_filtrado),
             "info": self.info
         }
@@ -455,9 +456,8 @@ class AdaptiveOutlierSingle:
         max_freq = rare.max()
         if pd.isna(min_freq) or pd.isna(max_freq):
             return {
-                "values": [],
                 "idx": [],
-                "score": [],
+                "outliers_score": [],
                 "total": 0,
                 "info": "No outliers detected."
             }
@@ -466,15 +466,17 @@ class AdaptiveOutlierSingle:
             score = [1 - (freqs[v] - min_freq) / (max_freq - min_freq) for v in outliers]
         else:
             score = [1.0 for _ in outliers]
+            
+        score = [round(s, 3) for s in score]
+        unique_scores = dict(zip(outliers, score))
+
 
         final_info = {
-            "values": outliers,
             "idx": idx,
-            "score": score,
+            "outliers_score": unique_scores,
             "total": len(idx),
             "info": self.info
         }
-        return final_info
         return final_info
         
     def detect_datetime_outliers(
@@ -524,19 +526,21 @@ class AdaptiveOutlierSingle:
             modified_z = 0.6745 * (timestamps - median) / mad
             mad_score = expit(np.abs(modified_z))  # map to [0, 1]
 
-        # -----------------------------
-        # Score final ponderado
+
         combined_score = 0.5 * iqr_score + 0.5 * mad_score
+        combined_score = combined_score.round(3)
         combined_series = pd.Series(combined_score, index=index_clean)
 
-        # Umbral de corte (puedes hacerlo configurable)
+    
         threshold = 0.7
         final_outliers = combined_series[combined_series > threshold]
+        values_scores = {idx_val: float(score) for idx_val, score in final_outliers.items()}
+
+        
 
         return {
-            "values": self.series.loc[final_outliers.index].dropna().unique().tolist(),
             "idx": final_outliers.index.tolist(),
-            "score": final_outliers.tolist(),
+            "outliers_score": values_scores,
             "total": len(final_outliers),
             "info": self.info
         }
@@ -564,8 +568,7 @@ class AdaptiveOutlierSingle:
             "possible_outliers": {},
             "meta": {
                 "col_name": self.series.name,
-                "col_type": self.col_type,
-                "comments": ""}
+                "col_type": self.col_type}
         }
         if not self._valid:
             return result
