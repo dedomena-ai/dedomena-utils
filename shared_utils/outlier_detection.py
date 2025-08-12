@@ -355,14 +355,15 @@ class AdaptiveOutlierSingle:
             return self.ecod_symmetric_score_outliers()
 
         x = series.values
+        if len(np.unique(x)) < 2:
+            logger.warning("Not enough unique values for KDE. Using symmetric ECOD instead.")
+            return self.ecod_symmetric_score_outliers()
 
         try:
-            
             kde = gaussian_kde(x)
             xs = np.linspace(np.min(x), np.max(x), 1000)
             peak = xs[np.argmax(kde(xs))]
 
-            # ECDF
             sorted_data = np.sort(x)
             n = len(x)
             def ecdf_func(v):
@@ -376,7 +377,6 @@ class AdaptiveOutlierSingle:
             scores = norm_scores[outlier_mask]
 
             return pd.DataFrame({'score': scores}, index=outliers.index)
-
         except Exception as e:
             logger.warning(
                 f"ECOD asymmetric scoring failed. Falling back to symmetric ECOD."
