@@ -317,6 +317,9 @@ class AdaptiveOutlierSingle:
     def ecod_symmetric_score_outliers(self, threshold=0.0):
         x = self.series.dropna().values
         n = len(x)
+        if n < 3 or len(np.unique(x)) < 2:
+            return pd.DataFrame(columns=['score'])
+        
         sorted_x = np.sort(x)
 
         def ecdf(val):
@@ -350,14 +353,10 @@ class AdaptiveOutlierSingle:
         Falls back to symmetric ECOD if KDE/ECDF fails.
         """
         series = self.series.dropna()
-        if series.empty:
-            logger.warning("Series is empty. Using symmetric ECOD instead.")
-            return self.ecod_symmetric_score_outliers()
+        if series.empty or len(np.unique(series.values)) < 3:
+            return pd.DataFrame(columns=['score'])
 
         x = series.values
-        if len(np.unique(x)) < 2:
-            logger.warning("Not enough unique values for KDE. Using symmetric ECOD instead.")
-            return self.ecod_symmetric_score_outliers()
 
         try:
             kde = gaussian_kde(x)
