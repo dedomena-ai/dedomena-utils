@@ -1,5 +1,7 @@
 import json
 import numpy as np
+import pandas as pd
+import datetime
 from fastapi.encoders import jsonable_encoder
 
 def json_serialize(data):
@@ -8,6 +10,7 @@ def json_serialize(data):
     
     - Converts NumPy types to native Python types.
     - Replaces NaN, Inf, -Inf with None (JSON valid).
+    - Converts datetime, date, and pandas.Timestamp to ISO 8601 strings.
     - Applies FastAPI's jsonable_encoder.
     """
 
@@ -32,6 +35,8 @@ def json_serialize(data):
             return obj
         elif isinstance(obj, np.bool_):
             return bool(obj)
+        elif isinstance(obj, (pd.Timestamp, datetime.datetime, datetime.date)):
+            return obj.isoformat()
         else:
             return obj
 
