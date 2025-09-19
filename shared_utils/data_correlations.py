@@ -19,20 +19,29 @@ def detect_column_types(df):
     for col in df.columns:
         dtype = df[col].dtype
 
-        if pd.api.types.is_string_dtype(dtype):
+        # String (nuevo tipo de pandas)
+        if isinstance(dtype, pd.StringDtype):
             column_types[col] = "string"
+        # Integer
         elif pd.api.types.is_integer_dtype(dtype):
             column_types[col] = "integer"
+        # Float
         elif pd.api.types.is_float_dtype(dtype):
             column_types[col] = "float"
+        # Boolean
         elif pd.api.types.is_bool_dtype(dtype):
             column_types[col] = "boolean"
+        # Datetime
         elif pd.api.types.is_datetime64_any_dtype(dtype):
             column_types[col] = "datetime"
-        elif pd.api.types.is_categorical_dtype(dtype):
+        # Category
+        elif isinstance(dtype, pd.CategoricalDtype):
             column_types[col] = "category"
+        # Object fallback
+        elif dtype == "object":
+            column_types[col] = "object"
         else:
-            column_types[col] = str(dtype)  # fallback to raw dtype name
+            column_types[col] = str(dtype)# fallback to raw dtype name
 
     return column_types
 
