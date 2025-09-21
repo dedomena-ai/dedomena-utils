@@ -16,7 +16,7 @@ def json_serialize(data):
 
     def convert_numpy(obj):
         if isinstance(obj, dict):
-            return {k: convert_numpy(v) for k, v in obj.items()}
+            return {str(convert_numpy(k)): convert_numpy(v) for k, v in obj.items()}
         elif isinstance(obj, list):
             return [convert_numpy(v) for v in obj]
         elif isinstance(obj, np.ndarray):
@@ -36,9 +36,12 @@ def json_serialize(data):
         elif isinstance(obj, np.bool_):
             return bool(obj)
         elif isinstance(obj, (pd.Timestamp, datetime.datetime, datetime.date)):
-            return obj.isoformat()
+            return obj.isoformat()            
         else:
-            return obj
+            try:
+                return jsonable_encoder(obj)
+            except Exception:
+                return str(obj)
 
     safe_data = convert_numpy(data)
     json_ready = jsonable_encoder(safe_data)
