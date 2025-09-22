@@ -33,7 +33,7 @@ class AdaptiveOutlier:
         all_indices = []
         for col_data in self.results.values():
             if col_data["summary"].get("n_outliers") > 0:
-                all_indices.extend(col_data["outliers"]["idx"])
+                all_indices.extend(col_data["outliers_detected"]["idx"])
 
         index_counts = Counter(all_indices)
         common_indices = [idx for idx, count in index_counts.items() if count >= threshold]
