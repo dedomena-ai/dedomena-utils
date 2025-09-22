@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 pd.set_option('future.no_silent_downcasting', True)
 
 class AdaptiveOutlier:
-    def __init__(self, data, outlier_process="adaptive", outlier_threshold=0.5):
+    def __init__(self, data, outlier_process="adaptive", outlier_threshold=0.5, extended_explain=False):
         # Normalización del input
         if isinstance(data, pd.Series):
             self.df = data.to_frame()
@@ -22,6 +22,7 @@ class AdaptiveOutlier:
         self.clean_df = self.df.copy()
         self.outlier_process = outlier_process
         self.outlier_threshold = outlier_threshold
+        self.extended_explain = extended_explain
         self.commons_idx = []
         self.results = {}
 
@@ -568,12 +569,9 @@ class AdaptiveOutlierSingle:
                 "n_rare": 0,
                 "n_possible": 0
             },
-            "outliers": {},
+            "outliers_detected": {},
             "rare_categories": {},
-            "possible_outliers": {},
-            "meta": {
-                "col_name": self.series.name,
-                "col_type": self.col_type}
+            "possible_outliers": {}
         }
         if not self._valid:
             return result
@@ -581,7 +579,7 @@ class AdaptiveOutlierSingle:
         if self.col_type in ["integer", "float", "numeric"]:
             final_info = self.detect_numeric_outliers()
             result["summary"]["n_outliers"] = final_info["total"]
-            result["outliers"] = final_info
+            result["outliers_detected"] = final_info
         elif self.col_type =="category":
             final_info = self.detect_rare_categories()
             result["summary"]["n_rare"] = final_info["total"]
